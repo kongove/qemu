@@ -94,6 +94,10 @@ typedef struct {
     int translate;
     int scancode_set; /* 1=XT, 2=AT, 3=PS/2 */
     int ledstate;
+    int repeat_period; /* typematic period, ms */
+    int repeat_delay; /* typematic delay, ms */
+    int repeat_key; /* keycode to repeat */
+    QEMUTimer *repeat_timer;
 } PS2KbdState;
 
 typedef struct {
@@ -146,6 +150,15 @@ void ps2_queue(void *opaque, int b)
     s->update_irq(s->update_arg, 1);
 }
 
+static void repeat_ps2_queue(void *opaque)
+{
+    PS2KbdState *s = opaque;
+
+    qemu_mod_timer(s->repeat_timer, qemu_get_clock_ns(vm_clock) +
+                   muldiv64(get_ticks_per_sec(), s->repeat_period, 1000));
+    ps2_queue(&s->common, s->repeat_key);
+}
+
 /*
    keycode is expressed as follow:
    bit 7    - 0 key pressed, 1 = key released
@@ -167,7 +180,23 @@ static void ps2_put_keycode(void *opaque, int keycode)
             keycode = ps2_raw_keycode_set3[keycode & 0x7f];
         }
       }
+
+    /* ignore repeated events from host, re-implement it */
+    if (keycode == s->repeat_key) {
+        return;
+    }
     ps2_queue(&s->common, keycode);
+    qemu_del_timer(s->repeat_timer);
+
+    /* only auto-repeat press event */
+    if (!(keycode & 0x80)) {
+        s->repeat_key = keycode;
+        /* delay a while before first repeat */
+        qemu_mod_timer(s->repeat_timer, qemu_get_clock_ns(vm_clock) +
+                       muldiv64(get_ticks_per_sec(), s->repeat_delay, 1000));
+    } else {
+        s->repeat_key = -1;
+    }
 }
 
 uint32_t ps2_read_data(void *opaque)
@@ -213,6 +242,11 @@ static void ps2_reset_keyboard(PS2KbdState *s)
 
 void ps2_write_keyboard(void *opaque, int val)
 {
+    /* repeat period/delay table from kernel (drivers/input/keyboard/atkbd.c) */
+    const short period[32] = { 33,  37,  42,  46,  50,  54,  58,  63,  67,  75,
+                83,  92, 100, 109, 116, 125, 133, 149, 167, 182, 200, 217, 232,
+                250, 270, 303, 333, 370, 400, 435, 470, 500 };
+    const short delay[4] = { 250, 500, 750, 1000 };
     PS2KbdState *s = (PS2KbdState *)opaque;
 
     switch(s->common.write_cmd) {
@@ -288,6 +322,10 @@ void ps2_write_keyboard(void *opaque, int val)
         s->common.write_cmd = -1;
         break;
     case KBD_CMD_SET_RATE:
+       /* Bit0-4 specifies the repeat rate */
+        s->repeat_period = period[val & 0x1f];
+       /* Bit5-6 bit specifies the delay time */
+        s->repeat_delay = delay[val >> 5 & 0x3];
         ps2_queue(&s->common, KBD_REPLY_ACK);
         s->common.write_cmd = -1;
         break;
@@ -536,6 +574,9 @@ static void ps2_kbd_reset(void *opaque)
     s->scan_enabled = 0;
     s->translate = 0;
     s->scancode_set = 0;
+    s->repeat_period = 92;
+    s->repeat_delay = 500;
+    s->repeat_timer = qemu_new_timer_ns(vm_clock, repeat_ps2_queue, s);
 }
 
 static void ps2_mouse_reset(void *opaque)
@@ -570,6 +611,13 @@ static const VMStateDescription vmstate_ps2_common = {
     }
 };
 
+static bool ps2_keyboard_repeatstate_needed(void *opaque)
+{
+    PS2KbdState *s = opaque;
+
+    return s->repeat_period || s->repeat_delay;
+}
+
 static bool ps2_keyboard_ledstate_needed(void *opaque)
 {
     PS2KbdState *s = opaque;
@@ -584,6 +632,18 @@ static int ps2_kbd_ledstate_post_load(void *opaque, int version_id)
     kbd_put_ledstate(s->ledstate);
     return 0;
 }
+
+static const VMStateDescription vmstate_ps2_keyboard_repeatstate = {
+    .name = "ps2kbd/repeatstate",
+    .version_id = 3,
+    .minimum_version_id = 2,
+    .minimum_version_id_old = 2,
+    .fields      = (VMStateField[]) {
+        VMSTATE_INT32(repeat_period, PS2KbdState),
+        VMSTATE_INT32(repeat_delay, PS2KbdState),
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 static const VMStateDescription vmstate_ps2_keyboard_ledstate = {
     .name = "ps2kbd/ledstate",
@@ -623,6 +683,9 @@ static const VMStateDescription vmstate_ps2_keyboard = {
         {
             .vmsd = &vmstate_ps2_keyboard_ledstate,
             .needed = ps2_keyboard_ledstate_needed,
+        }, {
+            .vmsd = &vmstate_ps2_keyboard_repeatstate,
+            .needed = ps2_keyboard_repeatstate_needed,
         }, {
             /* empty */
         }
