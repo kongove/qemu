@@ -615,7 +615,17 @@ static bool ps2_keyboard_repeatstate_needed(void *opaque)
 {
     PS2KbdState *s = opaque;
 
-    return s->repeat_period || s->repeat_delay;
+    return s->repeat_period || s->repeat_delay || s->repeat_key || s->repeat_timer;
+}
+
+static int ps2_kbd_repeatstate_load(QEMUFile *f, void *opaque, int version_id)
+{
+    PS2KbdState *s = opaque;
+    qemu_get_timer(f, s->repeat_timer);
+    qemu_mod_timer(s->repeat_timer, qemu_get_clock_ns(vm_clock) +
+                   muldiv64(get_ticks_per_sec(), s->repeat_period, 1000));
+
+    return 0;
 }
 
 static bool ps2_keyboard_ledstate_needed(void *opaque)
@@ -638,9 +648,12 @@ static const VMStateDescription vmstate_ps2_keyboard_repeatstate = {
     .version_id = 3,
     .minimum_version_id = 2,
     .minimum_version_id_old = 2,
+    .load_state_old = ps2_kbd_repeatstate_load,
     .fields      = (VMStateField[]) {
         VMSTATE_INT32(repeat_period, PS2KbdState),
         VMSTATE_INT32(repeat_delay, PS2KbdState),
+        VMSTATE_INT32(repeat_key, PS2KbdState),
+        VMSTATE_TIMER(repeat_timer, PS2KbdState),
         VMSTATE_END_OF_LIST()
     }
 };
