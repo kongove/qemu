@@ -28,6 +28,7 @@
 #include "qapi/error.h"
 #include "qmp-commands.h"
 #include "qapi-types.h"
+#include "hw/input/ps2.h"
 
 struct QEMUPutMouseEntry {
     QEMUPutMouseEvent *qemu_put_mouse_event;
@@ -238,7 +239,7 @@ int index_from_keycode(int code)
 
 static int *keycodes;
 static int keycodes_size;
-static QEMUTimer *key_timer;
+//static QEMUTimer *key_timer;
 
 static int keycode_from_keyvalue(const KeyValue *value)
 {

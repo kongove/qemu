@@ -153,7 +153,7 @@ void ps2_queue(void *opaque, int b)
 static void repeat_ps2_queue(void *opaque)
 {
     PS2KbdState *s = opaque;
-
+    printf("repeat_ps2_queue\n");
     qemu_mod_timer(s->repeat_timer, qemu_get_clock_ns(vm_clock) +
                    muldiv64(get_ticks_per_sec(), s->repeat_period, 1000));
     ps2_queue(&s->common, s->repeat_key);
@@ -190,12 +190,14 @@ static void ps2_put_keycode(void *opaque, int keycode)
 
     /* only auto-repeat press event */
     if (!(keycode & 0x80)) {
+    printf(" up\n");
         s->repeat_key = keycode;
         /* delay a while before first repeat */
         qemu_mod_timer(s->repeat_timer, qemu_get_clock_ns(vm_clock) +
                        muldiv64(get_ticks_per_sec(), s->repeat_delay, 1000));
     } else {
         s->repeat_key = -1;
+           printf(" down\n");
     }
 }
 
