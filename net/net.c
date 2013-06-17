@@ -143,15 +143,42 @@ void qemu_macaddr_default_if_unset(MACAddr *macaddr)
 {
     static int index = 0;
     static const MACAddr zero = { .a = { 0,0,0,0,0,0 } };
+    char info_str[256];
+    NetClientState *nc, *peer;
+    NetClientOptionsKind type;
 
     if (memcmp(macaddr, &zero, sizeof(zero)) != 0)
         return;
+
+realloc_mac:
     macaddr->a[0] = 0x52;
     macaddr->a[1] = 0x54;
     macaddr->a[2] = 0x00;
     macaddr->a[3] = 0x12;
     macaddr->a[4] = 0x34;
     macaddr->a[5] = 0x56 + index++;
+
+    QTAILQ_FOREACH(nc, &net_clients, next) {
+        peer = nc->peer;
+        type = nc->info->type;
+
+        if (net_hub_id_for_client(nc, NULL) == 0) {
+            continue;
+        }
+
+        snprintf(info_str, sizeof(info_str),
+                 "model=%s,macaddr=%02x:%02x:%02x:%02x:%02x:%02x",
+                 nc->model,
+                 macaddr->a[0], macaddr->a[1], macaddr->a[2],
+                 macaddr->a[3], macaddr->a[4], macaddr->a[5]);
+
+        if ((!peer || type == NET_CLIENT_OPTIONS_KIND_NIC)
+            && !strcmp(nc->info_str, info_str)) {
+            /* reallocate macaddr if it's used by other nic */
+            goto realloc_mac;
+        }
+    }
+
 }
 
 /**
