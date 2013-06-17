@@ -153,10 +153,12 @@ void qemu_macaddr_default_if_unset(MACAddr *macaddr)
 realloc_mac:
     macaddr->a[0] = 0x52;
     macaddr->a[1] = 0x54;
-    macaddr->a[2] = 0x00;
-    macaddr->a[3] = 0x12;
-    macaddr->a[4] = 0x34;
-    macaddr->a[5] = 0x56 + index++;
+    macaddr->a[2] = 0x00 + ((0x120000 + 0x3400 + 0x56 + index) >> 24 & 0xff);
+    macaddr->a[3] = 0x12 + ((0x3400 + 0x56 + index) >> 16 & 0xff);
+    macaddr->a[4] = 0x34 + ((0x56 + index) >> 8 & 0xff);
+    macaddr->a[5] = 0x56 + (index & 0xff);
+
+    index++;
 
     QTAILQ_FOREACH(nc, &net_clients, next) {
         peer = nc->peer;
