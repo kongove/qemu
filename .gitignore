@@ -22,6 +22,7 @@ linux-headers/asm
 qapi-generated
 qapi-types.[ch]
 qapi-visit.[ch]
+qapi-introspect.h
 qmp-commands.h
 qmp-marshal.c
 qemu-doc.html

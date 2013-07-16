@@ -42,3 +42,20 @@ types.
 
 'anonymous-struct' will be used to describe arbitrary structs
 (dictionary, list or string).
+
+== Avoid dead loop in recursive extending ==
+
+We have four types (ImageInfo, BlockStats, PciDeviceInfo, ObjectData)
+that uses themself in their own define data directly or indirectly,
+we will not repeatedly extend them to avoid dead loop.
+
+We use a 'parents List' to record the visit path, type name of each
+extended node will be saved to the List.
+
+Append type name to the list before extending, and remove type name
+from the list after extending.
+
+If the type name is already extended in parents List, we won't extend
+it repeatedly for avoiding dead loop.
+
+'recursive' indicates if the type is extended or not.
