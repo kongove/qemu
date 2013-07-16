@@ -4411,3 +4411,14 @@
     'reference-type': 'String',
     'type': 'DataObjectType',
     'unionobj': 'DataObjectUnion' } }
+
+##
+# @query-qmp-schema
+#
+# Query QMP schema information
+#
+# @returns: list of @DataObject
+#
+# Since: 1.8
+##
+{ 'command': 'query-qmp-schema', 'returns': ['DataObject'] }

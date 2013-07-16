@@ -27,6 +27,8 @@
 #include "qapi/qmp/qobject.h"
 #include "qapi/qmp-input-visitor.h"
 #include "hw/boards.h"
+#include "qapi/qmp/qjson.h"
+#include "qapi-introspect.h"
 
 NameInfo *qmp_query_name(Error **errp)
 {
@@ -486,6 +488,219 @@ DevicePropertyInfoList *qmp_device_list_properties(const char *typename,
 CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)
 {
     return arch_query_cpu_definitions(errp);
+}
+
+static strList *qobject_to_strlist(QObject *data)
+{
+    strList *list = NULL;
+    strList **plist = &list;
+    QList *qlist;
+    const QListEntry *lent;
+
+    qlist = qobject_to_qlist(data);
+    for (lent = qlist_first(qlist); lent; lent = qlist_next(lent)) {
+        strList *entry = g_malloc0(sizeof(strList));
+        entry->value = g_strdup(qobject_get_str(lent->value));
+        *plist = entry;
+        plist = &entry->next;
+    }
+
+    return list;
+}
+
+static DataObject *qobject_to_dataobj(QObject *data);
+
+static DataObjectMember *qobject_to_dataobjmem(QObject *data)
+{
+
+    DataObjectMember *member = g_malloc0(sizeof(DataObjectMember));
+
+    member->type = g_malloc0(sizeof(DataObjectMemberType));
+    if (data->type->code == QTYPE_QDICT) {
+        member->type->kind = DATA_OBJECT_MEMBER_TYPE_KIND_EXTEND;
+        member->type->extend = qobject_to_dataobj(data);
+    } else {
+        member->type->kind = DATA_OBJECT_MEMBER_TYPE_KIND_REFERENCE;
+        member->type->reference = g_strdup(qobject_get_str(data));
+    }
+
+    return member;
+}
+
+static DataObjectMemberList *qobject_to_dict_memlist(QObject *data)
+{
+    DataObjectMemberList *list = NULL;
+    DataObjectMemberList **plist = &list;
+    QDict *qdict = qobject_to_qdict(data);
+    const QDictEntry *dent;
+
+    for (dent = qdict_first(qdict); dent; dent = qdict_next(qdict, dent)) {
+        DataObjectMemberList *entry = g_malloc0(sizeof(DataObjectMemberList));
+        entry->value = qobject_to_dataobjmem(dent->value);
+
+        entry->value->has_optional = true;
+        entry->value->has_name = true;
+        if (dent->key[0] == '*') {
+            entry->value->optional = true;
+            entry->value->name = g_strdup(dent->key + 1);
+        } else {
+            entry->value->name = g_strdup(dent->key);
+        }
+        *plist = entry;
+        plist = &entry->next;
+    }
+
+    return list;
+}
+
+static DataObjectMemberList *qobject_to_list_memlist(QObject *data)
+{
+    const QListEntry *lent;
+    DataObjectMemberList *list = NULL;
+    DataObjectMemberList **plist = &list;
+    QList *qlist = qobject_to_qlist(data);
+
+    for (lent = qlist_first(qlist); lent; lent = qlist_next(lent)) {
+        DataObjectMemberList *entry = g_malloc0(sizeof(DataObjectMemberList));
+        entry->value = qobject_to_dataobjmem(lent->value);
+        entry->value->has_optional = true;
+        entry->value->has_name = true;
+        *plist = entry;
+        plist = &entry->next;
+    }
+
+    return list;
+}
+
+static DataObjectMemberList *qobject_to_memlist(QObject *data)
+{
+    DataObjectMemberList *list = NULL;
+    QDict *qdict = qobject_to_qdict(data);
+    QObject *subdata = qdict_get(qdict, "_obj_data");
+
+    list = NULL;
+    if (subdata->type->code == QTYPE_QDICT) {
+        list = qobject_to_dict_memlist(subdata);
+    } else if (subdata->type->code == QTYPE_QLIST) {
+        list = qobject_to_list_memlist(subdata);
+    }
+
+    return list;
+}
+
+static DataObject *qobject_to_dataobj(QObject *data)
+{
+    QObject *subdata;
+    QDict *qdict;
+    const char *obj_type, *obj_recursive;
+    DataObject *obj = g_malloc0(sizeof(DataObject));
+
+    if (data->type->code == QTYPE_QSTRING) {
+        obj->kind = DATA_OBJECT_KIND_REFERENCE_TYPE;
+        obj->reference_type = g_malloc0(sizeof(String));
+        obj->reference_type->str = g_strdup(qobject_get_str(data));
+        return obj;
+    }
+
+    qdict = qobject_to_qdict(data);
+    assert(qdict != NULL);
+
+    obj_type = qobject_get_str(qdict_get(qdict, "_obj_type"));
+    obj_recursive = qobject_get_str(qdict_get(qdict, "_obj_recursive"));
+    if (!strcmp(obj_recursive, "True")) {
+        obj->has_recursive = true;
+        obj->recursive = true;
+    }
+
+    obj->has_name = true;
+    obj->name = g_strdup(qobject_get_str(qdict_get(qdict, "_obj_name")));
+
+    subdata = qdict_get(qdict, "_obj_data");
+    qdict = qobject_to_qdict(subdata);
+
+    if (!strcmp(obj_type, "command")) {
+        obj->kind = DATA_OBJECT_KIND_COMMAND;
+        obj->command = g_malloc0(sizeof(DataObjectCommand));
+        subdata = qdict_get(qobject_to_qdict(subdata), "data");
+
+        if (subdata && subdata->type->code == QTYPE_QDICT) {
+            obj->command->has_data = true;
+            obj->command->data = qobject_to_memlist(subdata);
+        } else if (subdata && subdata->type->code == QTYPE_QLIST) {
+            abort();
+        }
+
+        subdata = qdict_get(qdict, "returns");
+        if (subdata) {
+            obj->command->has_returns = true;
+            obj->command->returns = qobject_to_dataobj(subdata);
+        }
+
+        subdata = qdict_get(qdict, "gen");
+        if (subdata && subdata->type->code == QTYPE_QSTRING) {
+            obj->command->has_gen = true;
+            if (!strcmp(qobject_get_str(subdata), "no")) {
+                obj->command->gen = false;
+            } else {
+                obj->command->gen = true;
+            }
+        }
+    } else if (!strcmp(obj_type, "union")) {
+        obj->kind = DATA_OBJECT_KIND_UNIONOBJ;
+        obj->unionobj = g_malloc0(sizeof(DataObjectUnion));
+        subdata = qdict_get(qdict, "data");
+        obj->unionobj->data = qobject_to_memlist(subdata);
+
+        subdata = qdict_get(qdict, "base");
+        if (subdata) {
+            obj->unionobj->has_base = true;
+            obj->unionobj->base = qobject_to_dataobj(subdata);
+        }
+
+        subdata = qdict_get(qdict, "discriminator");
+        if (subdata) {
+            obj->unionobj->has_discriminator = true;
+            obj->unionobj->discriminator = qobject_to_dataobj(subdata);
+        }
+    } else if (!strcmp(obj_type, "type")) {
+        obj->kind = DATA_OBJECT_KIND_TYPE;
+        obj->type = g_malloc0(sizeof(DataObjectType));
+        subdata = qdict_get(qdict, "data");
+        if (subdata) {
+            obj->type->data = qobject_to_memlist(subdata);
+        }
+     } else if (!strcmp(obj_type, "enum")) {
+        obj->kind = DATA_OBJECT_KIND_ENUMERATION;
+        obj->enumeration = g_malloc0(sizeof(DataObjectEnumeration));
+        subdata = qdict_get(qdict, "data");
+        obj->enumeration->data = qobject_to_strlist(subdata);
+    } else {
+        obj->has_name = false;
+        obj->kind = DATA_OBJECT_KIND_ANONYMOUS_STRUCT;
+        obj->anonymous_struct = g_malloc0(sizeof(DataObjectAnonymousStruct));
+        obj->anonymous_struct->data = qobject_to_memlist(data);
+    }
+
+    return obj;
+}
+
+DataObjectList *qmp_query_qmp_schema(Error **errp)
+{
+    DataObjectList *list = NULL;
+    DataObjectList **plist = &list;
+    QObject *data;
+    int i;
+
+    for (i = 0; qmp_schema_table[i]; i++) {
+        data = qobject_from_json(qmp_schema_table[i]);
+        assert(data != NULL);
+        DataObjectList *entry = g_malloc0(sizeof(DataObjectList));
+        entry->value = qobject_to_dataobj(data);
+        *plist = entry;
+        plist = &entry->next;
+    }
+
+    return list;
 }
 
 void qmp_add_client(const char *protocol, const char *fdname,
