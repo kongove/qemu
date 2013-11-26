@@ -55,7 +55,7 @@ typedef struct VirtIORNG {
 */
 #define DEFINE_VIRTIO_RNG_PROPERTIES(_state, _conf_field)                    \
         DEFINE_PROP_UINT64("max-bytes", _state, _conf_field.max_bytes,       \
-                           INT64_MAX),                                       \
-        DEFINE_PROP_UINT32("period", _state, _conf_field.period_ms, 1 << 16)
+                           INT64_MAX >> 16),                                 \
+        DEFINE_PROP_UINT32("period", _state, _conf_field.period_ms, 60000)
 
 #endif
