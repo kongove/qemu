@@ -25,14 +25,14 @@ typedef struct RngEgd
     CharDriverState *chr;
     char *chr_name;
 
+    EntropyReceiveFunc *receive_entropy;
     GSList *requests;
+    void *opaque;
 } RngEgd;
 
 typedef struct RngRequest
 {
-    EntropyReceiveFunc *receive_entropy;
     uint8_t *data;
-    void *opaque;
     size_t offset;
     size_t size;
 } RngRequest;
@@ -44,12 +44,13 @@ static void rng_egd_request_entropy(RngBackend *b, size_t size,
     RngEgd *s = RNG_EGD(b);
     RngRequest *req;
 
+    s->receive_entropy = receive_entropy;
+    s->opaque = opaque;
+
     req = g_malloc(sizeof(*req));
 
     req->offset = 0;
     req->size = size;
-    req->receive_entropy = receive_entropy;
-    req->opaque = opaque;
     req->data = g_malloc(req->size);
 
     while (size > 0) {
@@ -105,7 +106,7 @@ static void rng_egd_chr_read(void *opaque, const uint8_t *buf, int size)
         if (req->offset == req->size) {
             s->requests = g_slist_remove_link(s->requests, s->requests);
 
-            req->receive_entropy(req->opaque, req->data, req->size);
+            s->receive_entropy(s->opaque, req->data, req->size);
 
             rng_egd_free_request(req);
         }
