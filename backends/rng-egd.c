@@ -18,6 +18,8 @@
 #define TYPE_RNG_EGD "rng-egd"
 #define RNG_EGD(obj) OBJECT_CHECK(RngEgd, (obj), TYPE_RNG_EGD)
 
+#define BUFFER_SIZE 65536
+
 typedef struct RngEgd
 {
     RngBackend parent;
@@ -28,6 +30,7 @@ typedef struct RngEgd
     EntropyReceiveFunc *receive_entropy;
     GSList *requests;
     void *opaque;
+    size_t req_size;
 } RngEgd;
 
 typedef struct RngRequest
@@ -37,9 +40,57 @@ typedef struct RngRequest
     size_t size;
 } RngRequest;
 
-static void rng_egd_request_entropy(RngBackend *b, size_t size,
-                                    EntropyReceiveFunc *receive_entropy,
-                                    void *opaque)
+
+static void rng_egd_free_request(RngRequest *req)
+{
+    g_free(req->data);
+    g_free(req);
+}
+
+static int get_available_data_size(RngEgd *s)
+{
+    GSList *i;
+    RngRequest *req;
+    int total = 0;
+
+    for (i = s->requests; i; i = i->next) {
+        req = i->data;
+        total += req->offset;
+    }
+    return total;
+}
+
+static int get_free_buf_size(RngEgd *s)
+{
+
+    GSList *i;
+    RngRequest *req;
+    int total = 0;
+
+    for (i = s->requests; i; i = i->next) {
+        req = i->data;
+        total += req->size - req->offset;
+    }
+    return total;
+}
+
+static int get_total_buf_size(RngEgd *s)
+{
+
+    GSList *i;
+    RngRequest *req;
+    int total = 0;
+
+    for (i = s->requests; i; i = i->next) {
+        req = i->data;
+        total += req->size;
+    }
+    return total;
+}
+
+static void rng_egd_append_request(RngBackend *b, size_t size,
+                                   EntropyReceiveFunc *receive_entropy,
+                                   void *opaque)
 {
     RngEgd *s = RNG_EGD(b);
     RngRequest *req;
@@ -69,21 +120,60 @@ static void rng_egd_request_entropy(RngBackend *b, size_t size,
     s->requests = g_slist_append(s->requests, req);
 }
 
-static void rng_egd_free_request(RngRequest *req)
+
+static void rng_egd_expend_request(RngEgd *s, size_t size,
+                                   EntropyReceiveFunc *receive_entropy,
+                                   void *opaque)
 {
-    g_free(req->data);
-    g_free(req);
+    GSList *cur = s->requests;
+
+    while (size > 0 && cur) {
+        RngRequest *req = cur->data;
+        int len = MIN(size, req->offset);
+
+        s->receive_entropy(s->opaque, req->data, len);
+        req->offset -= len;
+        size -= len;
+        cur = cur->next;
+    }
+}
+
+static void rng_egd_request_entropy(RngBackend *b, size_t size,
+                                    EntropyReceiveFunc *receive_entropy,
+                                    void *opaque)
+{
+    RngEgd *s = RNG_EGD(b);
+
+    s->receive_entropy = receive_entropy;
+    s->opaque = opaque;
+    s->req_size += size;
+
+    if (get_available_data_size(s) >= size) {
+        rng_egd_expend_request(s, size, receive_entropy, opaque);
+        s->req_size -= size;
+    }
+
+    int total_size = get_total_buf_size(s);
+
+    while (total_size < BUFFER_SIZE)  {
+        int add_size = MIN(BUFFER_SIZE - total_size, 255);
+        total_size += add_size;
+        rng_egd_append_request(b, add_size, receive_entropy, opaque);
+    }
 }
 
 static int rng_egd_chr_can_read(void *opaque)
 {
     RngEgd *s = RNG_EGD(opaque);
-    GSList *i;
     int size = 0;
 
-    for (i = s->requests; i; i = i->next) {
-        RngRequest *req = i->data;
-        size += req->size - req->offset;
+    size = get_free_buf_size(s);
+
+    if (size == 0 && s->req_size > 0) {
+        int len = MIN(s->req_size, get_available_data_size(s));
+        rng_egd_expend_request(s, len, s->receive_entropy, opaque);
+        s->req_size -= len;
+        size = get_free_buf_size(s);
     }
 
     return size;
@@ -93,24 +183,25 @@ static void rng_egd_chr_read(void *opaque, const uint8_t *buf, int size)
 {
     RngEgd *s = RNG_EGD(opaque);
     size_t buf_offset = 0;
+    int len;
+    GSList *cur = s->requests;
 
     while (size > 0 && s->requests) {
-        RngRequest *req = s->requests->data;
-        int len = MIN(size, req->size - req->offset);
+        RngRequest *req = cur->data;
+        len = MIN(size, req->size - req->offset);
 
         memcpy(req->data + req->offset, buf + buf_offset, len);
         buf_offset += len;
         req->offset += len;
         size -= len;
-
-        if (req->offset == req->size) {
-            s->requests = g_slist_remove_link(s->requests, s->requests);
-
-            s->receive_entropy(s->opaque, req->data, req->size);
-
-            rng_egd_free_request(req);
-        }
+        cur = cur->next;
     }
+    if (s->req_size > 0) {
+        len = MIN(s->req_size, get_available_data_size(s));
+        rng_egd_expend_request(s, len, s->receive_entropy, opaque);
+        s->req_size -= len;
+    }
+
 }
 
 static void rng_egd_free_requests(RngEgd *s)
