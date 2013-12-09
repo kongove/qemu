@@ -18,7 +18,7 @@
 #define TYPE_RNG_EGD "rng-egd"
 #define RNG_EGD(obj) OBJECT_CHECK(RngEgd, (obj), TYPE_RNG_EGD)
 
-#define BUFFER_SIZE 65536
+#define MAX_BUFFER_SIZE 65536
 
 typedef struct RngEgd
 {
@@ -31,6 +31,7 @@ typedef struct RngEgd
     GSList *requests;
     void *opaque;
     size_t req_size;
+    uint32_t buf_size;
 } RngEgd;
 
 typedef struct RngRequest
@@ -154,9 +155,16 @@ static void rng_egd_request_entropy(RngBackend *b, size_t size,
     }
 
     int total_size = get_total_buf_size(s);
+    int buf_size;
 
-    while (total_size < BUFFER_SIZE)  {
-        int add_size = MIN(BUFFER_SIZE - total_size, 255);
+    if (s->buf_size != 0) {
+        buf_size = MIN(s->buf_size, MAX_BUFFER_SIZE);
+    } else {
+        buf_size = MAX_BUFFER_SIZE;
+    }
+
+    while (total_size < buf_size)  {
+        int add_size = MIN(buf_size - total_size, 255);
         total_size += add_size;
         rng_egd_append_request(b, add_size, receive_entropy, opaque);
     }
@@ -253,6 +261,15 @@ static void rng_egd_opened(RngBackend *b, Error **errp)
                           NULL, s);
 }
 
+static void rng_egd_set_buf_size(Object *obj, const char *value, Error **errp)
+{
+    RngBackend *b = RNG_BACKEND(obj);
+    RngEgd *s = RNG_EGD(b);
+
+    s->buf_size = atoi(value);
+    assert(s->buf_size > 0);
+}
+
 static void rng_egd_set_chardev(Object *obj, const char *value, Error **errp)
 {
     RngBackend *b = RNG_BACKEND(obj);
@@ -281,6 +298,7 @@ static void rng_egd_init(Object *obj)
     object_property_add_str(obj, "chardev",
                             rng_egd_get_chardev, rng_egd_set_chardev,
                             NULL);
+    object_property_add_str(obj, "buf_size", NULL, rng_egd_set_buf_size, NULL);
 }
 
 static void rng_egd_finalize(Object *obj)
