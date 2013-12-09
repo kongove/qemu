@@ -69,7 +69,7 @@ static void virtio_rng_process(VirtIORNG *vrng)
 {
     size_t size;
     unsigned quota;
-
+    //printf("rng_process 1 ...\n");
     if (!is_guest_ready(vrng)) {
         return;
     }
@@ -81,6 +81,7 @@ static void virtio_rng_process(VirtIORNG *vrng)
     }
     size = get_request_size(vrng->vq, quota);
     size = MIN(vrng->quota_remaining, size);
+   // printf("rng_process 2 ...size: %lu\n", size);
     if (size) {
         rng_backend_request_entropy(vrng->rng, size, chr_read, vrng);
     }
@@ -128,7 +129,9 @@ static void check_rate_limit(void *opaque)
     VirtIORNG *vrng = opaque;
 
     vrng->quota_remaining = vrng->conf.max_bytes;
+    //printf("f1\n");
     virtio_rng_process(vrng);
+    //printf("f2\n");
     timer_mod(vrng->rate_limit_timer,
                    qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + vrng->conf.period_ms);
 }
@@ -179,7 +182,14 @@ static void virtio_rng_device_realize(DeviceState *dev, Error **errp)
 
     vrng->rate_limit_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                                check_rate_limit, vrng);
+    printf("speed: %lu\n",
+	    vrng->conf.max_bytes);
 
+    printf("speed: %u\n",
+	    vrng->conf.period_ms);
+
+    printf("speed: %lf\n",
+	    vrng->conf.max_bytes / (vrng->conf.period_ms / 1000) / 1024 / 1024 / 1024 / 1024.0);
     timer_mod(vrng->rate_limit_timer,
                    qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + vrng->conf.period_ms);
 
