@@ -1,0 +1,44 @@
+= Full introspection support for QMP =
+
+
+== Purpose ==
+
+Add a new monitor command for management to  query QMP schema
+information, it returns a range of schema structs, which contain the
+useful metadata to help management to check supported features, QMP
+commands detail, etc.
+
+== 'DataObject' union ==
+
+{ 'union': 'DataObject',
+  'base': 'DataObjectBase',
+  'discriminator': 'type',
+  'data': {
+    'anonymous-struct': 'DataObjectAnonymousStruct',
+    'command': 'DataObjectCommand',
+    'enumeration': 'DataObjectEnumeration',
+    'reference-type': 'String',
+    'type': 'DataObjectType',
+    'unionobj': 'DataObjectUnion' } }
+
+Currently we have schema difinitions for type, command, enumeration,
+union. Some arbitrary structs (dictionary, list or string) and native
+types are also used in the body of definitions.
+
+Here we use "DataObject" union to abstract all above schema. We want
+to provide more useful metadata, and used some enum/unions to indicate
+the dynamic type. In the output, some simple data is processed too
+unwieldy. In another side, some complex data is described clearly.
+It's also caused by some limitation of QAPI infrastructure.
+
+So we define 'DataObject' to be an union, it always has an object name
+except anonymous struct.
+
+'command', 'enumeration', 'type', 'unionobj' are common schema type,
+'union' is a build-in type, so I used unionobj here.
+
+'reference-type' will be used to describe native types and unextended
+types.
+
+'anonymous-struct' will be used to describe arbitrary structs
+(dictionary, list or string).

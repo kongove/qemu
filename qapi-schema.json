@@ -4270,3 +4270,144 @@
 # Since: 1.7
 ##
 { 'command': 'blockdev-add', 'data': { 'options': 'BlockdevOptions' } }
+
+##
+# @DataObjectBase
+#
+# Base attributes of @DataObject
+#
+# @name: #optional @DataObject name
+# @type: @DataObject type
+# @recursive: #optional key to indicate if it's extended
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectBase',
+  'data': { '*name': 'str', 'type': 'str', '*recursive': 'bool' } }
+
+##
+# @DataObjectMemberType
+#
+# Type of @DabaObjectMember
+#
+# @reference: reference string
+# @anonymous: arbitrary struct
+# @extend: the @DataObjectMember
+#
+# Since: 1.8
+##
+{ 'union': 'DataObjectMemberType',
+  'discriminator': {},
+  'data': { 'reference': 'str',
+            'anonymous': 'DataObject',
+            'extend': 'DataObject' } }
+
+##
+# @DataObjectMember
+#
+# General member of @DataObject
+#
+# @type: type of @DataObjectMember
+# @name: #optional name
+# @optional: #optional key to indicate if the @DataObjectMember is optional
+# @recursive: #optional key to indicate if it's defined recursively
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectMember',
+  'data': { 'type': 'DataObjectMemberType', '*name': 'str',
+            '*optional': 'bool', '*recursive': 'bool' } }
+
+##
+# @DataObjectAnonymousStruct
+#
+# Arbitrary struct, it can be dictionary, list or string
+#
+# @data: content of arbitrary struct
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectAnonymousStruct',
+  'data': { 'data': [ 'DataObjectMember' ] } }
+
+##
+# @DataObjectCommand
+#
+# QMP Command schema
+#
+# @data: QMP command content
+# @returns: returns of executing command
+# @gen: a key to suppress code generation
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectCommand',
+  'data': { '*data': [ 'DataObjectMember' ],
+            '*returns': 'DataObject',
+            '*gen': 'bool' } }
+
+##
+# @DataObjectEnumeration
+#
+# Enumeration schema
+#
+# @data: enumeration content, it's a string list
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectEnumeration',
+  'data': { 'data': [ 'str' ] } }
+
+##
+# @DataObjectType
+#
+# Type schema
+#
+# @data: defined content of type, it's a dictionary or list
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectType',
+  'data': { 'data': [ 'DataObjectMember' ] } }
+
+##
+# @DataObjectUnion
+#
+# Union schema
+#
+# @data: main content of union
+# @base: base attributes of union
+# @discriminator: union discriminator
+#
+# Since: 1.8
+##
+{ 'type': 'DataObjectUnion',
+  'data': { 'data': [ 'DataObjectMember' ], '*base': 'DataObject',
+            '*discriminator': 'DataObject' } }
+
+##
+# @DataObject
+#
+# Dynamic data struct, it can be command, enumeration, type, union, arbitrary
+# struct or native type.
+#
+# @anonymous-struct: arbitrary struct, it can be dictionary, list or string
+# @command: QMP command schema
+# @enumeration: enumeration schema
+# @reference-type: native type or unextended type
+# @type: type schema, it will be extended
+# @unionobj: union schema, 'union' is a conflicted name, so we use
+#            unionobj instead
+#
+# Since: 1.8
+##
+{ 'union': 'DataObject',
+  'base': 'DataObjectBase',
+  'discriminator': 'type',
+  'data': {
+    'anonymous-struct': 'DataObjectAnonymousStruct',
+    'command': 'DataObjectCommand',
+    'enumeration': 'DataObjectEnumeration',
+    'reference-type': 'String',
+    'type': 'DataObjectType',
+    'unionobj': 'DataObjectUnion' } }
