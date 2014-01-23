@@ -135,6 +135,25 @@ const char *qstring_get_str(const QString *qstring)
 }
 
 /**
+ * qobject_to_str(): Convert a QObject to QString and return
+ * a pointer to the stored string
+ */
+const char *qobject_get_str(const QObject *data)
+{
+    QString *qstr;
+
+    if (!data) {
+        return NULL;
+    }
+    qstr = qobject_to_qstring(data);
+    if (qstr) {
+        return qstring_get_str(qstr);
+    } else {
+        return NULL;
+    }
+}
+
+/**
  * qstring_destroy_obj(): Free all memory allocated by a QString
  * object
  */
