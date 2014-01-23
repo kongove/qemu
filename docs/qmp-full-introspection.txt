@@ -8,6 +8,44 @@ information, it returns a range of schema structs, which contain the
 useful metadata to help management to check supported features, QMP
 commands detail, etc.
 
+== Usage ==
+
+Json schema:
+  { 'type': 'NameInfo', 'data': {'*name': 'str'} }
+  { 'command': 'query-name', 'returns': 'NameInfo' }
+
+Execute QMP command:
+
+  { "execute": "query-qmp-schema" }
+
+Returns:
+
+  { "return": [
+      {
+          "name": "query-name",
+          "type": "command",
+          "returns": {
+              "name": "NameInfo",
+              "type": "type",
+              "data": [
+                  {
+                      "name": "name",
+                      "optional": true,
+                      "recursive": false,
+                      "type": "str"
+                  }
+              ]
+          }
+      },
+      ...
+   }
+
+The whole schema information will be returned in one go, it contains
+all the schema entries. It doesn't support to be filtered by type
+or name. Currently it takes about 4 seconds to return about 1.7M string.
+Management only needs to execute this command once after installing
+QEMU package.
+
 == 'DataObject' union ==
 
 { 'union': 'DataObject',
